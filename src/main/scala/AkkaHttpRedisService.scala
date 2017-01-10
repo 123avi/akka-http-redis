@@ -2,7 +2,7 @@ import akka.actor.{ActorRef, ActorSystem}
 import akka.event.{Logging, LoggingAdapter}
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
-import akka.http.scaladsl.model.StatusCodes.{InternalServerError, OK, NoContent}
+import akka.http.scaladsl.model.StatusCodes.{InternalServerError, NoContent, OK}
 import akka.http.scaladsl.server.Directives._
 import akka.http.scaladsl.server.Route
 import akka.http.scaladsl.server.directives.Credentials
@@ -12,10 +12,11 @@ import akka.util.Timeout
 import com.typesafe.config.{Config, ConfigFactory}
 import model.UserHandler
 import model.UserHandler._
+import redis.RedisClient
+import reposiory.{ConcreteRedis, RedisRepoImpl}
 import spray.json.DefaultJsonProtocol
 
 import scala.concurrent.{ExecutionContextExecutor, Future}
-import scala.util.{Failure, Success}
 
 case class UserPwd(pwd:String)
 
@@ -137,14 +138,18 @@ trait Service extends Protocols {
 }
 
 
-object AkkaHttpRedisService extends App with Service {
+object AkkaHttpRedisService extends App with Service with ConcreteRedis {
   override implicit val system = ActorSystem()
   override implicit val executor = system.dispatcher
   override implicit val materializer = ActorMaterializer()
+  val prodDb = new RedisRepoImpl {
+    override def db = RedisClient(host = redisUrl.getHost, port = redisUrl.getPort, password = pwd)
+  }
+
 
   override val config = ConfigFactory.load()
   override val logger = Logging(system, getClass)
-  val userHandler = system.actorOf(UserHandler.props)
+  val userHandler = system.actorOf(UserHandler.props(prodDb))
 
   Http().bindAndHandle(unsecuredRoutes ~ routes , config.getString("http.interface"), config.getInt("http.port"))
 }

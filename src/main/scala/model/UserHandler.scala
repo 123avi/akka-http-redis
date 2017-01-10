@@ -16,19 +16,18 @@
 package model
 
 import akka.actor.{Actor, ActorLogging, Props}
-import redis.RedisClient
-import reposiory.{ConcreteRedis, RedisRepo}
 import akka.pattern.pipe
+import reposiory.Repo
 
-trait UserRepoSupport extends RedisRepo with ConcreteRedis {
-  this: Actor =>
-  import context.system
-  val db = RedisClient(host = redisUrl.getHost, port = redisUrl.getPort, password = pwd)
-
-}
+//trait UserRepoSupport extends RedisRepo with ConcreteRedis {
+//  this: Actor =>
+//  import context.system
+//  val db: RedisClient = RedisClient(host = redisUrl.getHost, port = redisUrl.getPort, password = pwd)
+//
+//}
 
 object UserHandler {
-  def props: Props = Props(new UserHandler)
+  def props(db: Repo): Props = Props(new UserHandler(db))
 
   case class User(username: String, details: String)
   case class Register(username: String, password: String)
@@ -40,28 +39,28 @@ object UserHandler {
 
 }
 
-class UserHandler extends Actor with ActorLogging with UserRepoSupport{
+class UserHandler(db: Repo) extends Actor with ActorLogging {
   import UserHandler._
   implicit val ec = context.dispatcher
   override def receive: Receive = {
     case Register(id, pwd) =>
-      upsert(id, pwd) pipeTo sender()
+      db.upsert(id, pwd) pipeTo sender()
 
     case Update(id, details) =>
-      upsert(id, details) pipeTo sender()
+      db.upsert(id, details) pipeTo sender()
 
     case GetUser(uname) =>
       //closing over the sender in Future is not safe
       //http://helenaedelson.com/?p=879
       val _sender = sender()
-      get(uname).foreach{
+      db.get(uname).foreach {
         case Some(i) => _sender ! User(uname, i)
         case None => _sender ! UserNotFound
       }
 
     case DeleteUser(uname) =>
       val _sender = sender()
-      del(uname).foreach{
+      db.del(uname).foreach {
         case i if i > 0 => _sender ! UserDeleted(uname)
         case _ => _sender ! UserNotFound(uname)
       }
